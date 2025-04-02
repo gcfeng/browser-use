@@ -35,6 +35,7 @@ dependencies = [
     "psutil>=7.0.0",
     "faiss-cpu>=1.10.0",
     "mem0ai==0.1.88",
+    "json-repair>=0.40.0",
     "sentence-transformers>=4.0.2"
 ]
 
