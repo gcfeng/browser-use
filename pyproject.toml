@@ -34,6 +34,7 @@ dependencies = [
     "typing-extensions>=4.12.2",
     "psutil>=7.0.0",
     "faiss-cpu>=1.9.0",
+    "json-repair>=0.40.0",
     "mem0ai==0.1.93",
     "rich>=14.0.0",
     "click>=8.1.8",

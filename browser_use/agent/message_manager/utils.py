@@ -6,6 +6,7 @@ import os
 import re
 from typing import Any
 
+from json_repair import repair_json
 from langchain_core.messages import (
 	AIMessage,
 	BaseMessage,
@@ -37,8 +38,9 @@ def extract_json_from_model_output(content: str) -> dict:
 			# Remove language identifier if present (e.g., 'json\n')
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
+		parsed_content = repair_json(content)
 		# Parse the cleaned content
-		result_dict = json.loads(content)
+		result_dict = json.loads(parsed_content)
 
 		# some models occasionally respond with a list containing one dict: https://github.com/browser-use/browser-use/issues/1458
 		if isinstance(result_dict, list) and len(result_dict) == 1 and isinstance(result_dict[0], dict):
@@ -61,6 +63,11 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: str | 
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
 		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
 		return merged_input_messages
+	# Handle OpenRouter/Gemini models
+	if 'gemini' in str(model_name).lower() or str(model_name).startswith('google/'):
+		logger.info(f'Converting messages for OpenRouter/Gemini model: {model_name}')
+		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
+		return converted_input_messages
 	return input_messages
 
 
