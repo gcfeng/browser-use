@@ -12,6 +12,7 @@ from langchain_core.messages import (
 	SystemMessage,
 	ToolMessage,
 )
+from json_repair import repair_json
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,9 @@ def extract_json_from_model_output(content: str) -> dict:
 			# Remove language identifier if present (e.g., 'json\n')
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
+		parsed_content = repair_json(content)
 		# Parse the cleaned content
-		return json.loads(content)
+		return json.loads(parsed_content)
 	except json.JSONDecodeError as e:
 		logger.warning(f'Failed to parse model output: {content} {str(e)}')
 		raise ValueError('Could not parse response.')
@@ -42,6 +44,11 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: Option
 		merged_input_messages = _merge_successive_messages(converted_input_messages, HumanMessage)
 		merged_input_messages = _merge_successive_messages(merged_input_messages, AIMessage)
 		return merged_input_messages
+	# Handle OpenRouter/Gemini models
+	if 'gemini' in str(model_name).lower() or str(model_name).startswith('google/'):
+		logger.info(f"Converting messages for OpenRouter/Gemini model: {model_name}")
+		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
+		return converted_input_messages
 	return input_messages
 
 
