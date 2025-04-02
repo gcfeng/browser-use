@@ -34,6 +34,7 @@ dependencies = [
     "psutil>=7.0.0",
     "faiss-cpu>=1.10.0",
     "mem0ai==0.1.81",
+    "json-repair>=0.40.0",
 ]
 
 # botocore: only needed for Bedrock Claude boto3 examples/models/bedrock_claude.py 
