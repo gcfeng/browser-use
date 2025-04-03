@@ -641,7 +641,7 @@ class Agent(Generic[Context]):
 			try:
 				parsed_json = extract_json_from_model_output(output.content)
 				parsed = self.AgentOutput(**parsed_json)
-				response: dict[str, Any] = { "parsed": parsed }
+				response: dict[str, Any] = {'parsed': parsed}
 			except (ValueError, ValidationError) as e:
 				logger.warning(f'Failed to parse model output: {output} {str(e)}')
 				raise ValueError('Could not parse response.')
@@ -1202,7 +1202,9 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
-			PlannerPrompt(all_actions).get_system_message(self.settings.is_planner_reasoning),
+			PlannerPrompt(all_actions).get_system_message(
+				self.settings.is_planner_reasoning, self.settings.extend_system_message
+			),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 

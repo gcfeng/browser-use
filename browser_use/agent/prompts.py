@@ -138,8 +138,10 @@ Interactive elements from top layer of the current page inside the viewport:
 
 
 class PlannerPrompt(SystemPrompt):
-	def get_system_message(self, is_planner_reasoning) -> Union[SystemMessage, HumanMessage]:
-		planner_prompt_text = """You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
+	def get_system_message(
+		self, is_planner_reasoning, extend_system_message: Optional[str] = None
+	) -> Union[SystemMessage, HumanMessage]:
+		planner_prompt_text = f"""You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
 Your role is to:
 1. Analyze the current state and history
 2. Evaluate progress towards the ultimate goal
@@ -147,17 +149,17 @@ Your role is to:
 4. Suggest the next high-level steps to take
 5. When an image is provided, use it to understand the page layout
 6. If the target website has not been previously opened, prioritize locating the target website address from the task and open it directly
+{extend_system_message if extend_system_message is not None else ''}
 
 Inside your messages, there will be AI messages from different agents with different formats.
 
 Your output format should be always a JSON object with the following fields:
-{
-    "state_analysis": "Brief analysis of the current state and what has been done so far",
+{{'state_analysis': "Brief analysis of the current state and what has been done so far",
     "progress_evaluation": "Evaluation of progress towards the ultimate goal (as percentage and description)",
     "challenges": "List any potential challenges or roadblocks",
     "next_steps": "List 2-3 concrete next steps to take",
     "reasoning": "Explain your reasoning for the suggested next steps"
-}
+}}
 
 Ignore the other AI messages output structures.
 
