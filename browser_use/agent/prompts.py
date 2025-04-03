@@ -163,6 +163,7 @@ Your role is to:
 4. Suggest the next high-level steps to take
 5. When an image is provided, use it to understand the page layout
 6. If the target website has not been previously opened, prioritize locating the target website address from the task and open it directly
+{extend_system_message if extend_system_message is not None else ''}
 
 Inside your messages, there will be AI messages from different agents with different formats.
 
