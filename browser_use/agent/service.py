@@ -1214,7 +1214,9 @@ class Agent(Generic[Context]):
 
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
-			PlannerPrompt(all_actions).get_system_message(self.settings.is_planner_reasoning),
+			PlannerPrompt(all_actions).get_system_message(
+				self.settings.is_planner_reasoning, self.settings.extend_system_message
+			),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
 
