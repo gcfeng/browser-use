@@ -1251,8 +1251,12 @@ class Agent(Generic[Context]):
 		):
 			plan = self._remove_think_tags(plan)
 		try:
-			plan_json = json.loads(plan)
+			plan_json = extract_json_from_model_output(plan)
 			logger.info(f'Planning Analysis:\n{json.dumps(plan_json, indent=4)}')
+
+			if self.settings.save_conversation_path:
+				target = self.settings.save_conversation_path + f'_planner_{self.state.n_steps}.txt'
+				save_conversation(planner_messages, plan_json, target, self.settings.save_conversation_path_encoding)
 		except json.JSONDecodeError:
 			logger.info(f'Planning Analysis:\n{plan}')
 		except Exception as e:
