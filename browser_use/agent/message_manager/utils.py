@@ -5,6 +5,7 @@ import logging
 import os
 from typing import Any, Optional, Type
 
+from json_repair import repair_json
 from langchain_core.messages import (
 	AIMessage,
 	BaseMessage,
@@ -12,7 +13,6 @@ from langchain_core.messages import (
 	SystemMessage,
 	ToolMessage,
 )
-from json_repair import repair_json
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,8 @@ def extract_json_from_model_output(content: str) -> dict:
 			# Remove language identifier if present (e.g., 'json\n')
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
-		parsed_content = repair_json(content)
 		# Parse the cleaned content
-		return json.loads(parsed_content)
+		return repair_json(content, return_objects=True)  # type: ignore
 	except json.JSONDecodeError as e:
 		logger.warning(f'Failed to parse model output: {content} {str(e)}')
 		raise ValueError('Could not parse response.')
@@ -46,7 +45,7 @@ def convert_input_messages(input_messages: list[BaseMessage], model_name: Option
 		return merged_input_messages
 	# Handle OpenRouter/Gemini models
 	if 'gemini' in str(model_name).lower() or str(model_name).startswith('google/'):
-		logger.info(f"Converting messages for OpenRouter/Gemini model: {model_name}")
+		logger.info(f'Converting messages for OpenRouter/Gemini model: {model_name}')
 		converted_input_messages = _convert_messages_for_non_function_calling_models(input_messages)
 		return converted_input_messages
 	return input_messages
@@ -132,4 +131,9 @@ def _write_messages_to_file(f: Any, messages: list[BaseMessage]) -> None:
 def _write_response_to_file(f: Any, response: Any) -> None:
 	"""Write model response to conversation file"""
 	f.write(' RESPONSE\n')
-	f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))
+	if isinstance(response, str):
+		f.write(response, indent=2)
+	elif isinstance(response, dict) or isinstance(response, list):
+		f.write(json.dumps(response, indent=2))
+	else:
+		f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))
