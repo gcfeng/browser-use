@@ -38,9 +38,8 @@ def extract_json_from_model_output(content: str) -> dict:
 			# Remove language identifier if present (e.g., 'json\n')
 			if '\n' in content:
 				content = content.split('\n', 1)[1]
-		parsed_content = repair_json(content)
 		# Parse the cleaned content
-		result_dict = json.loads(parsed_content)
+		result_dict = repair_json(content, return_objects=True)  # type: ignore
 
 		# some models occasionally respond with a list containing one dict: https://github.com/browser-use/browser-use/issues/1458
 		if isinstance(result_dict, list) and len(result_dict) == 1 and isinstance(result_dict[0], dict):
@@ -151,4 +150,9 @@ def _write_messages_to_file(f: Any, messages: list[BaseMessage]) -> None:
 def _write_response_to_file(f: Any, response: Any) -> None:
 	"""Write model response to conversation file"""
 	f.write(' RESPONSE\n')
-	f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))
+	if isinstance(response, str):
+		f.write(response, indent=2)
+	elif isinstance(response, dict) or isinstance(response, list):
+		f.write(json.dumps(response, indent=2))
+	else:
+		f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))
