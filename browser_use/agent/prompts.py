@@ -139,7 +139,7 @@ Interactive elements from top layer of the current page inside the viewport:
 
 class PlannerPrompt(SystemPrompt):
 	def get_system_message(
-		self, is_planner_reasoning, extend_system_message: Optional[str] = None
+		self, is_planner_reasoning, override_system_message: Optional[str] = None, extend_system_message: Optional[str] = None
 	) -> Union[SystemMessage, HumanMessage]:
 		planner_prompt_text = f"""You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
 Your role is to:
@@ -164,6 +164,9 @@ Your output format should be always a JSON object with the following fields:
 Ignore the other AI messages output structures.
 
 Keep your responses concise and focused on actionable insights."""
+
+		if override_system_message:
+			planner_prompt_text = override_system_message
 
 		if is_planner_reasoning:
 			return HumanMessage(content=planner_prompt_text)

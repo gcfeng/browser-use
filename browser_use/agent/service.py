@@ -105,7 +105,17 @@ class Agent(Generic[Context]):
 			Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
 			None,
 		] = None,
+		register_step_fail_callback: Union[
+			Callable[[str, int], None],  # Sync callback
+			Callable[[str, int], Awaitable[None]],  # Async callback
+			None,
+		] = None,
 		register_done_callback: Union[
+			Callable[['AgentHistoryList'], Awaitable[None]],  # Async Callback
+			Callable[['AgentHistoryList'], None],  # Sync Callback
+			None,
+		] = None,
+		register_fail_callback: Union[
 			Callable[['AgentHistoryList'], Awaitable[None]],  # Async Callback
 			Callable[['AgentHistoryList'], None],  # Sync Callback
 			None,
@@ -143,6 +153,7 @@ class Agent(Generic[Context]):
 		planner_llm: Optional[BaseChatModel] = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
+		planner_override_system_message: Optional[str] = None,
 		# Inject state
 		injected_agent_state: Optional[AgentState] = None,
 		#
@@ -182,6 +193,7 @@ class Agent(Generic[Context]):
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
+			planner_override_system_message=planner_override_system_message,
 			enable_memory=enable_memory,
 			memory_interval=memory_interval,
 			memory_config=memory_config,
@@ -266,6 +278,8 @@ class Agent(Generic[Context]):
 		self.register_new_step_callback = register_new_step_callback
 		self.register_done_callback = register_done_callback
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
+		self.register_step_fail_callback = register_step_fail_callback
+		self.register_fail_callback = register_fail_callback
 
 		# Context
 		self.context = context
@@ -453,8 +467,6 @@ class Agent(Generic[Context]):
 				# This is needed in case Ctrl+C was pressed during the get_next_action call
 				await self._raise_if_stopped_or_paused()
 
-				self.state.n_steps += 1
-
 				if self.register_new_step_callback:
 					if inspect.iscoroutinefunction(self.register_new_step_callback):
 						await self.register_new_step_callback(state, model_output, self.state.n_steps)
@@ -470,6 +482,8 @@ class Agent(Generic[Context]):
 				await self._raise_if_stopped_or_paused()
 
 				self._message_manager.add_model_output(model_output)
+
+				self.state.n_steps += 1
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
 				self._message_manager._remove_last_state_message()
@@ -540,6 +554,12 @@ class Agent(Generic[Context]):
 		error_msg = AgentError.format_error(error, include_trace=include_trace)
 		prefix = f'❌ Result failed {self.state.consecutive_failures + 1}/{self.settings.max_failures} times:\n '
 		self.state.consecutive_failures += 1
+
+		if self.register_step_fail_callback:
+			if inspect.iscoroutinefunction(self.register_step_fail_callback):
+				await self.register_step_fail_callback(error_msg, self.state.n_steps)
+			else:
+				self.register_step_fail_callback(error_msg, self.state.n_steps)
 
 		if 'Browser closed' in error_msg:
 			logger.error('❌  Browser is closed or disconnected, unable to proceed')
@@ -786,6 +806,12 @@ class Agent(Generic[Context]):
 				# Check if we should stop due to too many failures
 				if self.state.consecutive_failures >= self.settings.max_failures:
 					logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
+
+					if self.register_fail_callback:
+						if inspect.iscoroutinefunction(self.register_fail_callback):
+							await self.register_fail_callback(self.state.history)
+						else:
+							self.register_fail_callback(self.state.history)
 					break
 
 				# Check control flags before each step
@@ -1215,7 +1241,9 @@ class Agent(Generic[Context]):
 		# Create planner message history using full message history with all available actions
 		planner_messages = [
 			PlannerPrompt(all_actions).get_system_message(
-				self.settings.is_planner_reasoning, self.settings.extend_system_message
+				self.settings.is_planner_reasoning,
+				self.settings.planner_override_system_message,
+				self.settings.extend_system_message,
 			),
 			*self._message_manager.get_messages()[1:],  # Use full message history except the first
 		]
