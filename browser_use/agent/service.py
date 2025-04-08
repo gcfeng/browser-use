@@ -18,6 +18,7 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
+from langchain_core.runnables import RunnableConfig
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
@@ -62,7 +63,8 @@ from browser_use.telemetry.views import (
 	AgentRunTelemetryEvent,
 	AgentStepTelemetryEvent,
 )
-from browser_use.utils import check_env_variables, time_execution_async, time_execution_sync
+from browser_use.trace.service import CozeLoopClient
+from browser_use.utils import time_execution_async, time_execution_sync
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -723,10 +725,12 @@ class Agent(Generic[Context]):
 		"""Get next action from LLM based on current state"""
 		input_messages = self._convert_input_messages(input_messages)
 
+		trace_callback_handler = CozeLoopClient().get_langchain_callback()
+
 		if self.tool_calling_method == 'raw':
 			logger.debug(f'Using {self.tool_calling_method} for {self.chat_model_library}')
 			try:
-				output = self.llm.invoke(input_messages)
+				output = self.llm.invoke(input_messages, config=RunnableConfig(callbacks=[trace_callback_handler]))
 				response = {'raw': output, 'parsed': None}
 			except Exception as e:
 				logger.error(f'Failed to invoke model: {str(e)}')
@@ -744,7 +748,9 @@ class Agent(Generic[Context]):
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
 			try:
-				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+				response: dict[str, Any] = await structured_llm.ainvoke(
+					input_messages, config=RunnableConfig(callbacks=[trace_callback_handler])
+				)  # type: ignore
 				parsed: AgentOutput | None = response['parsed']
 
 			except Exception as e:
@@ -754,7 +760,9 @@ class Agent(Generic[Context]):
 		else:
 			logger.debug(f'Using {self.tool_calling_method} for {self.chat_model_library}')
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+			response: dict[str, Any] = await structured_llm.ainvoke(
+				input_messages, config=RunnableConfig(callbacks=[trace_callback_handler])
+			)  # type: ignore
 
 		# Handle tool call responses
 		if response.get('parsing_error') and 'raw' in response:
@@ -1384,6 +1392,16 @@ class Agent(Generic[Context]):
 						continue  # type: ignore
 			else:
 				new_msg = last_state_message.content
+
+			planner_messages[-1] = HumanMessage(content=new_msg)
+		elif not self.settings.use_vision and self.settings.use_vision_for_planner:
+			state = await self.browser_context.get_state()
+			last_state_message: HumanMessage = planner_messages[-1]
+			# add image to last state message
+			new_msg = [
+				last_state_message.content,
+				{'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{state.screenshot}'}},
+			]
 
 			planner_messages[-1] = HumanMessage(content=new_msg)
 
