@@ -75,6 +75,9 @@ class AgentSettings(BaseModel):
 	memory_interval: int = 10
 	memory_config: Optional[dict] = None
 
+	# CozeLoop
+	cozeloop_config: Optional[dict] = None
+
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""

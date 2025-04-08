@@ -46,6 +46,7 @@ Common action sequences:
 - If you want to research something, open a new tab instead of using the current tab
 - If captcha pops up, try to solve it - else try a different approach
 - If the page is not fully loaded, use wait action
+- If you need to search something, use search action. Don't need to input the search query manually, just use the action
 
 5. TASK COMPLETION:
 - Use the done action as the last action as soon as the ultimate task is complete
@@ -58,6 +59,9 @@ Common action sequences:
 6. VISUAL CONTEXT:
 - When an image is provided, use it to understand the page layout
 - Bounding boxes with labels on their top right corner correspond to element indexes
+- Each bounding box and its label have the same color
+- Visual context helps verify element locations and relationships
+- Sometimes labels overlap, so use the context to verify the correct element
 
 7. Form filling:
 - If you fill an input field and your action sequence is interrupted, most often something changed e.g. suggestions popped up under the field.
