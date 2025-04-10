@@ -664,13 +664,26 @@ class Agent(Generic[Context]):
 				raise LLMException(401, 'LLM API call failed') from e
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
 			output.content = self._remove_think_tags(str(output.content))
-			try:
-				parsed_json = extract_json_from_model_output(output.content)
-				parsed = self.AgentOutput(**parsed_json)
-				response['parsed'] = parsed
-			except (ValueError, ValidationError) as e:
-				logger.warning(f'Failed to parse model output: {output} {str(e)}')
-				raise ValueError('Could not parse response.')
+			if not output.content and 'doubao' in self.model_name:
+				if hasattr(output, 'tool_calls') and output.tool_calls:
+					tool_call = output.tool_calls[0]  # Take first tool call
+					tool_call_name = tool_call['name']
+					tool_call_args = tool_call['args']
+					if tool_call_name == 'AgentOutput':
+						parsed = self.AgentOutput(**tool_call_args)
+						response['parsed'] = parsed
+					else:
+						response['parsing_error'] = True
+				else:
+					response['parsing_error'] = True
+			else:
+				try:
+					parsed_json = extract_json_from_model_output(output.content)
+					parsed = self.AgentOutput(**parsed_json)
+					response['parsed'] = parsed
+				except (ValueError, ValidationError) as e:
+					logger.warning(f'Failed to parse model output: {output} {str(e)}')
+					raise ValueError('Could not parse response.')
 
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)

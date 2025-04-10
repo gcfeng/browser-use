@@ -25,6 +25,7 @@ from browser_use.controller.views import (
 	CloseTabAction,
 	DoneAction,
 	DragDropAction,
+	ExtractContentAction,
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
@@ -305,15 +306,14 @@ class Controller(Generic[Context]):
 		# Content Actions
 		@self.registry.action(
 			'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
+			param_model=ExtractContentAction,
 		)
-		async def extract_content(
-			goal: str, should_strip_link_urls: bool, browser: BrowserContext, page_extraction_llm: BaseChatModel
-		):
+		async def extract_content(params: ExtractContentAction, browser: BrowserContext, page_extraction_llm: BaseChatModel):
 			page = await browser.get_current_page()
 			import markdownify
 
 			strip = []
-			if should_strip_link_urls:
+			if params.should_strip_link_urls:
 				strip = ['a', 'img']
 
 			content = markdownify.markdownify(await page.content(), strip=strip)
@@ -329,7 +329,7 @@ class Controller(Generic[Context]):
 			try:
 				trace_callback_handler = CozeLoopClient().get_langchain_callback()
 				output = page_extraction_llm.invoke(
-					template.format(goal=goal, page=content), config=RunnableConfig(callbacks=[trace_callback_handler])
+					template.format(goal=params.goal, page=content), config=RunnableConfig(callbacks=[trace_callback_handler])
 				)
 				msg = f'📄  Extracted from page\n: {output.content}\n'
 				logger.info(msg)

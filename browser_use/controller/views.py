@@ -59,6 +59,11 @@ class CloseTabAction(BaseModel):
 	page_id: int
 
 
+class ExtractContentAction(BaseModel):
+	goal: str
+	should_strip_link_urls: Optional[bool] = None
+
+
 class ScrollAction(BaseModel):
 	amount: Optional[int] = None  # The number of pixels to scroll. If None, scroll down/up one page
 
