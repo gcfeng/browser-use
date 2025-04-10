@@ -8,6 +8,7 @@ from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnableConfig
 from playwright.async_api import ElementHandle, Page
 
 # from lmnr.sdk.laminar import Laminar
@@ -35,6 +36,7 @@ from browser_use.controller.views import (
 	SwitchTabAction,
 	WaitForElementAction,
 )
+from browser_use.trace.service import CozeLoopClient
 from browser_use.utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -325,7 +327,10 @@ class Controller(Generic[Context]):
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
 			try:
-				output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
+				trace_callback_handler = CozeLoopClient().get_langchain_callback()
+				output = page_extraction_llm.invoke(
+					template.format(goal=goal, page=content), config=RunnableConfig(callbacks=[trace_callback_handler])
+				)
 				msg = f'📄  Extracted from page\n: {output.content}\n'
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
