@@ -114,8 +114,8 @@ class Agent(Generic[Context]):
 			| None
 		) = None,
 		register_step_action_callback: Union[
-			Callable[['BrowserState', int, int], None],  # Sync callback
-			Callable[['BrowserState', int, int], Awaitable[None]],  # Async callback
+			Callable[['BrowserState', Dict[str, Any]], None],  # Sync callback
+			Callable[['BrowserState', Dict[str, Any]], Awaitable[None]],  # Async callback
 			None,
 		] = None,
 		register_step_fail_callback: Union[
@@ -163,6 +163,7 @@ class Agent(Generic[Context]):
 		max_actions_per_step: int = 10,
 		tool_calling_method: ToolCallingMethod | None = 'auto',
 		page_extraction_llm: BaseChatModel | None = None,
+		page_extraction_llm_prompt: Optional[str] = None,
 		planner_llm: BaseChatModel | None = None,
 		planner_interval: int = 1,  # Run planner every N steps
 		is_planner_reasoning: bool = False,
@@ -201,6 +202,7 @@ class Agent(Generic[Context]):
 			max_actions_per_step=max_actions_per_step,
 			tool_calling_method=tool_calling_method,
 			page_extraction_llm=page_extraction_llm,
+			page_extraction_llm_prompt=page_extraction_llm_prompt,
 			planner_llm=planner_llm,
 			planner_interval=planner_interval,
 			is_planner_reasoning=is_planner_reasoning,
@@ -1052,31 +1054,42 @@ class Agent(Generic[Context]):
 			try:
 				await self._raise_if_stopped_or_paused()
 
+				try:
+					if self.register_step_action_callback:
+						state = await self.browser_context.get_state()
+						extra: Dict[str, Any] = {
+							'step_index': self.state.n_steps,
+							'action_index': i,
+							'node_index': action.get_index(),
+						}
+						if extra['node_index']:
+							node = state.selector_map.get(extra['node_index'])
+							if node:
+								extra['node_text'] = node.get_all_text_till_next_clickable_element()
+						if inspect.iscoroutinefunction(self.register_step_action_callback):
+							await self.register_step_action_callback(state, extra)
+						else:
+							self.register_step_action_callback(state, extra)
+						await self.browser_context.remove_highlights()
+				except Exception as e:
+					logger.error(f'❌ Action callback failed: {str(e)}')
+
 				result = await self.controller.act(
 					action,
 					self.browser_context,
 					self.settings.page_extraction_llm,
+					self.settings.page_extraction_llm_prompt,
 					self.sensitive_data,
 					self.settings.available_file_paths,
 					context=self.context,
 				)
-
-				await asyncio.sleep(self.browser_context.config.wait_between_actions)
-
-				if self.register_step_action_callback:
-					state = await self.browser_context.get_state()
-					if inspect.iscoroutinefunction(self.register_step_action_callback):
-						await self.register_step_action_callback(state, self.state.n_steps, i)
-					else:
-						self.register_step_action_callback(state, self.state.n_steps, i)
-
-					await self.browser_context.remove_highlights()
-
 				results.append(result)
 
 				logger.debug(f'Executed action {i + 1} / {len(actions)}')
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:
 					break
+
+				await asyncio.sleep(self.browser_context.config.wait_between_actions)
 			except asyncio.CancelledError:
 				# Gracefully handle task cancellation
 				logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')

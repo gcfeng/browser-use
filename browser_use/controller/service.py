@@ -224,7 +224,12 @@ class Controller(Generic[Context]):
 			'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about, links with companies in structured format or simply links',
 			param_model=ExtractContentAction,
 		)
-		async def extract_content(params: ExtractContentAction, browser: BrowserContext, page_extraction_llm: BaseChatModel):
+		async def extract_content(
+			params: ExtractContentAction,
+			browser: BrowserContext,
+			page_extraction_llm: BaseChatModel,
+			page_extraction_llm_prompt: Optional[str],
+		):
 			page = await browser.get_current_page()
 			import markdownify
 
@@ -241,6 +246,8 @@ class Controller(Generic[Context]):
 					content += markdownify.markdownify(await iframe.content())
 
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+			if page_extraction_llm_prompt:
+				prompt = page_extraction_llm_prompt
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
 			try:
 				trace_callback_handler = CozeLoopClient().get_langchain_callback()
@@ -829,6 +836,7 @@ class Controller(Generic[Context]):
 		browser_context: BrowserContext,
 		#
 		page_extraction_llm: BaseChatModel | None = None,
+		page_extraction_llm_prompt: Optional[str] = None,
 		sensitive_data: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
 		#
@@ -852,6 +860,7 @@ class Controller(Generic[Context]):
 						params,
 						browser=browser_context,
 						page_extraction_llm=page_extraction_llm,
+						page_extraction_llm_prompt=page_extraction_llm_prompt,
 						sensitive_data=sensitive_data,
 						available_file_paths=available_file_paths,
 						context=context,
