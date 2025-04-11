@@ -100,6 +100,10 @@ class AgentState(BaseModel):
 	# 	arbitrary_types_allowed = True
 
 
+class AgentExtractAction(BaseModel):
+	content: str
+
+
 @dataclass
 class AgentStepInfo:
 	step_number: int
