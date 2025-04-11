@@ -107,6 +107,11 @@ class Agent(Generic[Context]):
 			Callable[['BrowserState', 'AgentOutput', int], Awaitable[None]],  # Async callback
 			None,
 		] = None,
+		register_step_action_callback: Union[
+			Callable[['BrowserState', int, int], None],  # Sync callback
+			Callable[['BrowserState', int, int], Awaitable[None]],  # Async callback
+			None,
+		] = None,
 		register_step_fail_callback: Union[
 			Callable[[str, int], None],  # Sync callback
 			Callable[[str, int], Awaitable[None]],  # Async callback
@@ -281,6 +286,7 @@ class Agent(Generic[Context]):
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
+		self.register_step_action_callback = register_step_action_callback
 		self.register_done_callback = register_done_callback
 		self.register_external_agent_status_raise_error_callback = register_external_agent_status_raise_error_callback
 		self.register_step_fail_callback = register_step_fail_callback
@@ -487,8 +493,6 @@ class Agent(Generic[Context]):
 				await self._raise_if_stopped_or_paused()
 
 				self._message_manager.add_model_output(model_output)
-
-				self.state.n_steps += 1
 			except asyncio.CancelledError:
 				# Task was cancelled due to Ctrl+C
 				self._message_manager._remove_last_state_message()
@@ -505,6 +509,7 @@ class Agent(Generic[Context]):
 			result: list[ActionResult] = await self.multi_act(model_output.action)
 
 			self.state.last_result = result
+			self.state.n_steps += 1
 
 			if len(result) > 0 and result[-1].is_done:
 				logger.info(f'📄 Result: {result[-1].extracted_content}')
@@ -664,9 +669,9 @@ class Agent(Generic[Context]):
 				raise LLMException(401, 'LLM API call failed') from e
 			# TODO: currently invoke does not return reasoning_content, we should override invoke
 			output.content = self._remove_think_tags(str(output.content))
-			if not output.content and 'doubao' in self.model_name:
-				if hasattr(output, 'tool_calls') and output.tool_calls:
-					tool_call = output.tool_calls[0]  # Take first tool call
+			if not output.content:
+				if hasattr(output, 'tool_calls') and output.tool_calls:  # type: ignore
+					tool_call = output.tool_calls[0]  # type: ignore
 					tool_call_name = tool_call['name']
 					tool_call_args = tool_call['args']
 					if tool_call_name == 'AgentOutput':
@@ -951,15 +956,22 @@ class Agent(Generic[Context]):
 					context=self.context,
 				)
 
+				await asyncio.sleep(self.browser_context.config.wait_between_actions)
+
+				if self.register_step_action_callback:
+					state = await self.browser_context.get_state()
+					if inspect.iscoroutinefunction(self.register_step_action_callback):
+						await self.register_step_action_callback(state, self.state.n_steps, i)
+					else:
+						self.register_step_action_callback(state, self.state.n_steps, i)
+
+					await self.browser_context.remove_highlights()
+
 				results.append(result)
 
 				logger.debug(f'Executed action {i + 1} / {len(actions)}')
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:
 					break
-
-				await asyncio.sleep(self.browser_context.config.wait_between_actions)
-				# hash all elements. if it is a subset of cached_state its fine - else break (new elements on page)
-
 			except asyncio.CancelledError:
 				# Gracefully handle task cancellation
 				logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')
