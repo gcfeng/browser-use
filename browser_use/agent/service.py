@@ -1064,6 +1064,9 @@ class Agent(Generic[Context]):
 							'action_index': i,
 							'node_index': action.get_index(),
 						}
+						for action_name, action_args in action.model_dump(exclude_unset=True).items():
+							extra['action_name'] = action_name
+							extra['action_args'] = action_args
 						if extra['node_index']:
 							node = state.selector_map.get(extra['node_index'])
 							if node:
