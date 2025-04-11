@@ -96,6 +96,7 @@ class Registry(Generic[Context]):
 		params: dict,
 		browser: Optional[BrowserContext] = None,
 		page_extraction_llm: Optional[BaseChatModel] = None,
+		page_extraction_llm_prompt: Optional[str] = None,
 		sensitive_data: Optional[Dict[str, str]] = None,
 		available_file_paths: Optional[list[str]] = None,
 		#
@@ -138,6 +139,8 @@ class Registry(Generic[Context]):
 				extra_args['browser'] = browser
 			if 'page_extraction_llm' in parameter_names:
 				extra_args['page_extraction_llm'] = page_extraction_llm
+			if 'page_extraction_llm_prompt' in parameter_names:
+				extra_args['page_extraction_llm_prompt'] = page_extraction_llm_prompt
 			if 'available_file_paths' in parameter_names:
 				extra_args['available_file_paths'] = available_file_paths
 			if action_name == 'input_text' and sensitive_data:
