@@ -32,6 +32,7 @@ from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
 	AgentError,
+	AgentExtractAction,
 	AgentHistory,
 	AgentHistoryList,
 	AgentOutput,
@@ -118,8 +119,8 @@ class Agent(Generic[Context]):
 			None,
 		] = None,
 		register_done_callback: Union[
-			Callable[['AgentHistoryList'], Awaitable[None]],  # Async Callback
-			Callable[['AgentHistoryList'], None],  # Sync Callback
+			Callable[['AgentHistoryList', list[AgentExtractAction]], Awaitable[None]],  # Async Callback
+			Callable[['AgentHistoryList', list[AgentExtractAction]], None],  # Sync Callback
 			None,
 		] = None,
 		register_fail_callback: Union[
@@ -213,6 +214,7 @@ class Agent(Generic[Context]):
 
 		# Initialize state
 		self.state = injected_agent_state or AgentState()
+		self.extract_actions: list[AgentExtractAction] = []
 
 		# Action setup
 		self._setup_action_models()
@@ -980,6 +982,11 @@ class Agent(Generic[Context]):
 				)
 				results.append(result)
 
+				# Cache extract_content action result
+				for action_name, _ in action.model_dump(exclude_unset=True).items():
+					if action_name == 'extract_content':
+						self.extract_actions.append(AgentExtractAction(content=result.extracted_content or ''))
+
 				logger.debug(f'Executed action {i + 1} / {len(actions)}')
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:
 					break
@@ -1050,9 +1057,9 @@ class Agent(Generic[Context]):
 
 		if self.register_done_callback:
 			if inspect.iscoroutinefunction(self.register_done_callback):
-				await self.register_done_callback(self.state.history)
+				await self.register_done_callback(self.state.history, self.extract_actions)
 			else:
-				self.register_done_callback(self.state.history)
+				self.register_done_callback(self.state.history, self.extract_actions)
 
 	async def rerun_history(
 		self,
