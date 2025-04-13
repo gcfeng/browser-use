@@ -1040,6 +1040,7 @@
         attributes: {},
         xpath: '/body',
         children: [],
+        rect: getCachedBoundingRect(node),
       };
 
       // Process children of body
@@ -1122,6 +1123,7 @@
       attributes: {},
       xpath: getXPathTree(node, true),
       children: [],
+      rect: getCachedBoundingRect(node),
     };
 
     // Get attributes for interactive elements or potential text containers
@@ -1274,7 +1276,8 @@
     }
   }
 
+  const viewport = { width: window.innerWidth, height: window.innerHeight, scrollX: window.scrollX, scrollY: window.scrollY };
   return debugMode ?
-    { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } :
-    { rootId, map: DOM_HASH_MAP };
+    { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS, viewport: viewport } :
+    { rootId, map: DOM_HASH_MAP, viewport: viewport };
 };

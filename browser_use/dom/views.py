@@ -263,3 +263,4 @@ SelectorMap = dict[int, DOMElementNode]
 class DOMState:
 	element_tree: DOMElementNode
 	selector_map: SelectorMap
+	viewport_info: ViewportInfo
