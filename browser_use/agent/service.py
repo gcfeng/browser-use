@@ -13,11 +13,7 @@ from typing import Any, Generic, TypeVar
 
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-	SystemMessage,
-)
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 # from lmnr.sdk.decorators import observe
@@ -33,7 +29,9 @@ from browser_use.agent.message_manager.utils import (
 	is_model_without_tool_support,
 	save_conversation,
 )
-from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from browser_use.agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt, UITarsExecutorPrompt
+from browser_use.agent.uitars.controller import UITarsController, locate_element
+from browser_use.agent.uitars.parser import PredictionParsed, convert_bbox_to_coordinates, get_summary, parse_action_vlm
 from browser_use.agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
@@ -57,6 +55,7 @@ from browser_use.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
+from browser_use.dom.views import DOMElementNode
 from browser_use.exceptions import LLMException
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import (
@@ -175,6 +174,9 @@ class Agent(Generic[Context]):
 		enable_memory: bool = True,
 		memory_config: MemoryConfig | None = None,
 		source: str | None = None,
+		# Using a specialized LLM for UI interaction decisions
+		uitars_executor_llm: Optional[BaseChatModel] = None,
+		uitars_controller: UITarsController = UITarsController(),
 	):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
@@ -183,6 +185,7 @@ class Agent(Generic[Context]):
 		self.task = task
 		self.llm = llm
 		self.controller = controller
+		self.uitars_controller = uitars_controller
 		self.sensitive_data = sensitive_data
 
 		self.settings = AgentSettings(
@@ -209,6 +212,7 @@ class Agent(Generic[Context]):
 			is_planner_reasoning=is_planner_reasoning,
 			save_playwright_script_path=save_playwright_script_path,
 			extend_planner_system_message=extend_planner_system_message,
+			uitars_executor_llm=uitars_executor_llm,
 		)
 
 		# Memory settings
@@ -509,7 +513,7 @@ class Agent(Generic[Context]):
 
 			# Run planner at specified intervals if planner is configured
 			if self.settings.planner_llm and self.state.n_steps % self.settings.planner_interval == 0:
-				plan = await self._run_planner()
+				plan = await self._run_planner(state)
 				# add plan before last state message
 				self._message_manager.add_plan(plan, position=-1)
 
@@ -583,7 +587,11 @@ class Agent(Generic[Context]):
 				self._message_manager._remove_last_state_message()
 				raise e
 
-			result: list[ActionResult] = await self.multi_act(model_output.action)
+			result: list[ActionResult] = []
+			if self.settings.uitars_executor_llm:
+				result: list[ActionResult] = await self._run_uitars_executor(state, model_output)
+			if not result:
+				result: list[ActionResult] = await self.multi_act(model_output.action)
 
 			self.state.last_result = result
 			self.state.n_steps += 1
@@ -864,9 +872,9 @@ class Agent(Generic[Context]):
 			await self.log_completion()
 			if self.register_done_callback:
 				if inspect.iscoroutinefunction(self.register_done_callback):
-					await self.register_done_callback(self.state.history)
+					await self.register_done_callback(self.state.history, self.extract_actions)
 				else:
-					self.register_done_callback(self.state.history)
+					self.register_done_callback(self.state.history, self.extract_actions)
 			return True, True
 
 		return False, False
@@ -1109,6 +1117,65 @@ class Agent(Generic[Context]):
 				raise InterruptedError('Action cancelled by user')
 
 		return results
+
+	@time_execution_async('--uitars-multi-act (agent)')
+	async def uitars_multi_act(
+		self,
+		actions: list[PredictionParsed],
+	) -> list[ActionResult]:
+		"""Execute uitars multiple actions"""
+		results = []
+
+		await self.browser_context.remove_highlights()
+		for i, action in enumerate(actions):
+			if not action.action_type:
+				continue
+			try:
+				await self._raise_if_stopped_or_paused()
+				await self._uitars_act_callback(action, i)
+
+				result = await self.uitars_controller.act(action, self.browser_context, self.sensitive_data)
+				results.append(result)
+
+				logger.debug(f'Executed action {i + 1} / {len(actions)}')
+				if results[-1].is_step_done or results[-1].error or i == len(actions) - 1:
+					break
+			except asyncio.CancelledError:
+				# Gracefully handle task cancellation
+				logger.info(f'Action {i + 1} was cancelled due to Ctrl+C')
+				if not results:
+					# Add a result for the cancelled action
+					results.append(ActionResult(error='The action was cancelled due to Ctrl+C', include_in_memory=True))
+				raise InterruptedError('Action cancelled by user')
+
+		return results
+
+	async def _uitars_act_callback(self, action: PredictionParsed, action_index: int):
+		element: Optional[DOMElementNode] = None
+		if action.action_inputs.start_box:
+			try:
+				element = locate_element(action.action_inputs.start_box, self.browser_context)
+			except Exception as e:
+				logger.error(f'❗️ Action:callback locate element failed: {str(e)}')
+
+		try:
+			if self.register_step_action_callback:
+				state = await self.browser_context.get_state()
+				extra: Dict[str, Any] = {
+					'step_index': self.state.n_steps,
+					'action_index': action_index,
+					'action_name': action.action_type,
+					'action_args': action.action_inputs,
+					'node_index': element.highlight_index if element else -1,
+					'node_text': element.get_all_text_till_next_clickable_element() if element else None,
+				}
+				if inspect.iscoroutinefunction(self.register_step_action_callback):
+					await self.register_step_action_callback(state, extra)
+				else:
+					self.register_step_action_callback(state, extra)
+				await self.browser_context.remove_highlights()
+		except Exception as e:
+			logger.error(f'❌ Action callback failed: {str(e)}')
 
 	async def _validate_output(self) -> bool:
 		"""Validate the output of the last action is what the user wanted"""
@@ -1401,7 +1468,7 @@ class Agent(Generic[Context]):
 			else:
 				pass
 
-	async def _run_planner(self) -> str | None:
+	async def _run_planner(self, state: BrowserState) -> str | None:
 		"""Run the planner to analyze state and suggest next steps"""
 		# Skip planning if no planner_llm is set
 		if not self.settings.planner_llm:
@@ -1443,7 +1510,6 @@ class Agent(Generic[Context]):
 
 			planner_messages[-1] = HumanMessage(content=new_msg)
 		elif not self.settings.use_vision and self.settings.use_vision_for_planner:
-			state = await self.browser_context.get_state()
 			last_state_message: HumanMessage = planner_messages[-1]
 			# add image to last state message
 			new_msg = [
@@ -1482,6 +1548,95 @@ class Agent(Generic[Context]):
 			logger.info(f'Plan: {plan}')
 
 		return plan
+
+	def _should_run_uitars(self, actions: list[ActionModel]):
+		if not self.settings.uitars_executor_llm:
+			return False
+
+		action_count = 0
+		has_noninteractive_action = False
+		has_empty_action = False
+		multi_action_on_same_index = False
+		last_action_index = None
+		for action in actions:
+			for action_name, action_args in action.model_dump(exclude_unset=True).items():
+				action_count += 1
+				if not action_name:
+					has_empty_action = True
+					continue
+				if not ('click_' in action_name or 'input_' in action_name or 'scroll_' in action_name or 'drag_' in action_name):
+					has_noninteractive_action = True
+				index = action_args.get('index')
+				if index:
+					if last_action_index and last_action_index == index:
+						multi_action_on_same_index = True
+					else:
+						last_action_index = index
+
+		return not has_noninteractive_action and ((action_count > 1 and has_empty_action) or multi_action_on_same_index)
+
+	async def _run_uitars_executor(self, state: BrowserState, main_llm_output: AgentOutput) -> list[ActionResult]:
+		if not self._should_run_uitars(main_llm_output.action):
+			return []
+
+		logger.info('✨ Take over by uitars')
+
+		executor_messages = [
+			UITarsExecutorPrompt('').get_system_message(),
+			HumanMessage(content=main_llm_output.current_state.next_goal),
+			HumanMessage(content=main_llm_output.current_state.memory),
+			HumanMessage(
+				[
+					{'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{state.screenshot}'}},
+				]
+			),
+		]
+
+		max_steps = self.settings.max_actions_per_step or 10
+		results: list[ActionResult] = []
+		for step in range(max_steps):
+			try:
+				response = await self.settings.uitars_executor_llm.ainvoke(executor_messages)  # type: ignore
+				content = convert_bbox_to_coordinates(str(response.content))
+				parsed = parse_action_vlm(content)
+				logger.info(f'🤷 UITars action: {parsed}')
+				action_results = await self.uitars_multi_act(parsed)
+				results.extend(action_results)
+
+				# UITars is finished
+				if len(results) > 0 and results[-1].is_step_done:
+					logger.info(f'📄 Step Result: {results[-1].extracted_content}')
+					break
+
+				# Retain at most 4 images
+				images = {'oldest_index': -1, 'all_images': 0, 'max_images': 4}
+				for index, msg in enumerate(executor_messages):
+					if isinstance(msg, HumanMessage) and isinstance(msg.content, list):
+						if msg.content[0]['type'] == 'image_url':  # type: ignore
+							images['all_images'] += 1
+							if images['oldest_index'] == -1:
+								images['oldest_index'] = index
+				if images['all_images'] >= images['max_images']:
+					del executor_messages[images['oldest_index']]
+
+				# Add new screenshot and action summary
+				screenshot_b64 = await self.browser_context.take_screenshot()
+				executor_messages.append(
+					HumanMessage(
+						[
+							{'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{screenshot_b64}'}},
+						]
+					),
+				)
+				executor_messages.append(AIMessage(content=get_summary(str(response.content))))
+
+				step += 1
+			except Exception as e:
+				# Dont raise error
+				logger.error(f'Failed to run uitars: {response.content} {str(e)}')
+				break
+
+		return results
 
 	@property
 	def message_manager(self) -> MessageManager:

@@ -1,6 +1,5 @@
 import json
 import logging
-from dataclasses import dataclass
 from importlib import resources
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -8,22 +7,11 @@ from urllib.parse import urlparse
 if TYPE_CHECKING:
 	from patchright.async_api import Page
 
-from browser_use.dom.views import (
-	DOMBaseNode,
-	DOMElementNode,
-	DOMState,
-	DOMTextNode,
-	SelectorMap,
-)
+from browser_use.dom.history_tree_processor.view import Coordinates, CoordinateSet
+from browser_use.dom.views import DOMBaseNode, DOMElementNode, DOMState, DOMTextNode, SelectorMap, ViewportInfo
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ViewportInfo:
-	width: int
-	height: int
 
 
 class DomService:
@@ -41,8 +29,10 @@ class DomService:
 		focus_element: int = -1,
 		viewport_expansion: int = 0,
 	) -> DOMState:
-		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
-		return DOMState(element_tree=element_tree, selector_map=selector_map)
+		element_tree, selector_map, viewport_info = await self._build_dom_tree(
+			highlight_elements, focus_element, viewport_expansion
+		)
+		return DOMState(element_tree=element_tree, selector_map=selector_map, viewport_info=viewport_info)
 
 	@time_execution_async('--get_cross_origin_iframes')
 	async def get_cross_origin_iframes(self) -> list[str]:
@@ -68,7 +58,7 @@ class DomService:
 		highlight_elements: bool,
 		focus_element: int,
 		viewport_expansion: int,
-	) -> tuple[DOMElementNode, SelectorMap]:
+	) -> tuple[DOMElementNode, SelectorMap, ViewportInfo]:
 		if await self.page.evaluate('1+1') != 2:
 			raise ValueError('The page cannot evaluate javascript code properly')
 
@@ -84,6 +74,7 @@ class DomService:
 					parent=None,
 				),
 				{},
+				ViewportInfo(width=0, height=0, scroll_x=0, scroll_y=0),
 			)
 
 		# NOTE: We execute JS code in the browser to extract important DOM information.
@@ -117,12 +108,19 @@ class DomService:
 	async def _construct_dom_tree(
 		self,
 		eval_page: dict,
-	) -> tuple[DOMElementNode, SelectorMap]:
+	) -> tuple[DOMElementNode, SelectorMap, ViewportInfo]:
 		js_node_map = eval_page['map']
 		js_root_id = eval_page['rootId']
+		js_viewport = eval_page['viewport']
 
 		selector_map = {}
 		node_map = {}
+		viewport_info = ViewportInfo(
+			width=js_viewport['width'],
+			height=js_viewport['height'],
+			scroll_x=js_viewport['scrollX'],
+			scroll_y=js_viewport['scrollY'],
+		)
 
 		for id, node_data in js_node_map.items():
 			node, children_ids = self._parse_node(node_data)
@@ -155,7 +153,7 @@ class DomService:
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')
 
-		return html_to_dict, selector_map
+		return html_to_dict, selector_map, viewport_info
 
 	def _parse_node(
 		self,
@@ -179,8 +177,20 @@ class DomService:
 
 		if 'viewport' in node_data:
 			viewport_info = ViewportInfo(
-				width=node_data['viewport']['width'],
-				height=node_data['viewport']['height'],
+				width=round(node_data['viewport']['width']), height=round(node_data['viewport']['height']), scroll_x=0, scroll_y=0
+			)
+
+		viewport_coordinates = None
+		if 'rect' in node_data:
+			rect = node_data['rect']
+			viewport_coordinates = CoordinateSet(
+				top_left=Coordinates(x=round(rect['left']), y=round(rect['top'])),
+				top_right=Coordinates(x=round(rect['left'] + rect['width']), y=round(rect['top'])),
+				bottom_left=Coordinates(x=round(rect['left']), y=round(rect['top'] + rect['height'])),
+				bottom_right=Coordinates(x=round(rect['left'] + rect['width']), y=round(rect['top'] + rect['height'])),
+				center=Coordinates(x=round(rect['left'] + rect['width'] / 2), y=round(rect['top'] + rect['height'] / 2)),
+				width=round(rect['width']),
+				height=round(rect['height']),
 			)
 
 		element_node = DOMElementNode(
@@ -196,6 +206,7 @@ class DomService:
 			shadow_root=node_data.get('shadowRoot', False),
 			parent=None,
 			viewport_info=viewport_info,
+			viewport_coordinates=viewport_coordinates,
 		)
 
 		children_ids = node_data.get('children', [])

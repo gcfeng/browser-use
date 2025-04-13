@@ -1216,6 +1216,7 @@ class BrowserContext:
 			self.current_state = BrowserState(
 				element_tree=content.element_tree,
 				selector_map=content.selector_map,
+				viewport_info=content.viewport_info,
 				url=page.url,
 				title=await page.title(),
 				tabs=tabs_info,
