@@ -75,6 +75,8 @@ class AgentSettings(BaseModel):
 	# CozeLoop
 	cozeloop_config: Optional[dict] = None
 
+	uitars_executor_llm: Optional[BaseChatModel] = None
+
 
 class AgentState(BaseModel):
 	"""Holds all state information for an Agent"""
@@ -112,6 +114,7 @@ class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
 	is_done: Optional[bool] = False
+	is_step_done: Optional[bool] = False
 	success: Optional[bool] = None
 	extracted_content: Optional[str] = None
 	error: Optional[str] = None

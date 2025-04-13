@@ -99,7 +99,7 @@ class AgentMessagePrompt:
 		else:
 			step_info_description = ''
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-		step_info_description += f'Current date and time: {time_str}'
+		step_info_description += f'\nCurrent date and time: {time_str}'
 
 		state_description = f"""
 [Task history memory ends]
@@ -188,3 +188,40 @@ Keep your responses concise and focused on actionable insights.
 			return HumanMessage(content=planner_prompt_text)
 		else:
 			return SystemMessage(content=planner_prompt_text)
+
+
+class UITarsExecutorPrompt(SystemPrompt):
+	def get_system_message(self, override_system_message: Optional[str] = None) -> Union[SystemMessage, HumanMessage]:
+		executor_prompt_text = """
+You are a GUI agent. You are given a task and your action history, with screenshots. You need to perform the next action to complete the task. 
+
+## Output Format
+```
+Thought: ...
+Action: ...
+```
+
+## Action Space
+click(start_box='[x1, y1, x2, y2]')
+left_double(start_box='[x1, y1, x2, y2]')
+right_single(start_box='[x1, y1, x2, y2]')
+drag(start_box='[x1, y1, x2, y2]', end_box='[x3, y3, x4, y4]')
+hotkey(key='')
+type(content='') #If you want to submit your input, use "\n" at the end of `content`.
+scroll(start_box='[x1, y1, x2, y2]', direction='down or up or right or left')
+wait() #Sleep for 5s and take a screenshot to check for any changes.
+finished()
+call_user() # Submit the task and call the user when the task is unsolvable, or when you need the user's help.
+
+## Note
+- Use the same language with user instruction in `Thought` part.
+- Write a small plan and finally summarize your next action (with its target element) in one sentence in `Thought` part.
+- You only need to complete the minimum goal of the task. For example, if your task is "Open second ByteDance related post", you just need to open it without doing anything else.
+
+## User Instruction
+"""
+
+		if override_system_message:
+			executor_prompt_text = override_system_message
+
+		return SystemMessage(content=executor_prompt_text)
