@@ -77,9 +77,6 @@ class AgentSettings(BaseModel):
 	memory_interval: int = 10
 	memory_config: Optional[dict] = None
 
-	# CozeLoop
-	cozeloop_config: Optional[dict] = None
-
 	uitars_executor_llm: Optional[BaseChatModel] = None
 
 

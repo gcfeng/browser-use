@@ -170,8 +170,6 @@ class Agent(Generic[Context]):
 		enable_memory: bool = False,
 		memory_interval: int = 10,
 		memory_config: Optional[dict] = None,
-		# CozeLoop
-		cozeloop_config: Optional[dict] = None,
 		# Using a specialized LLM for UI interaction decisions
 		uitars_executor_llm: Optional[BaseChatModel] = None,
 		uitars_controller: UITarsController = UITarsController(),
@@ -212,7 +210,6 @@ class Agent(Generic[Context]):
 			enable_memory=enable_memory,
 			memory_interval=memory_interval,
 			memory_config=memory_config,
-			cozeloop_config=cozeloop_config,
 			uitars_executor_llm=uitars_executor_llm,
 		)
 
