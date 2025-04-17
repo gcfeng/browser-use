@@ -72,9 +72,6 @@ class AgentSettings(BaseModel):
 	is_planner_reasoning: bool = False  # type: ignore
 	extend_planner_system_message: Optional[str] = None
 
-	# CozeLoop
-	cozeloop_config: Optional[dict] = None
-
 	uitars_executor_llm: Optional[BaseChatModel] = None
 
 
