@@ -78,9 +78,6 @@ class AgentSettings(BaseModel):
 	# Playwright script generation setting
 	save_playwright_script_path: str | None = None  # Path to save the generated Playwright script
 
-	# CozeLoop
-	cozeloop_config: Optional[dict] = None
-
 	uitars_executor_llm: Optional[BaseChatModel] = None
 
 
