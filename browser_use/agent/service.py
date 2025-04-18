@@ -64,7 +64,7 @@ from browser_use.telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from browser_use.trace.service import CozeLoopClient
-from browser_use.utils import time_execution_async, time_execution_sync
+from browser_use.utils import check_env_variables, time_execution_async, time_execution_sync
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -1066,7 +1066,7 @@ class Agent(Generic[Context]):
 
 				try:
 					if self.register_step_action_callback:
-						state = await self.browser_context.get_state()
+						state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
 						extra: Dict[str, Any] = {
 							'step_index': self.state.n_steps,
 							'action_index': i,
