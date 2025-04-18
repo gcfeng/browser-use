@@ -145,6 +145,8 @@ class Controller(Generic[Context]):
 
 				logger.info(msg)
 				logger.debug(f'Element xpath: {element_node.xpath}')
+				# wait for pages updated
+				await asyncio.sleep(1)
 				if len(session.context.pages) > initial_pages:
 					new_tab_msg = 'New tab opened - switching to it'
 					msg += f' - {new_tab_msg}'
