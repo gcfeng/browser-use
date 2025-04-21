@@ -10,6 +10,7 @@ from browser_use.agent.views import (
 from browser_use.browser.views import BrowserState, BrowserStateHistory, TabInfo
 from browser_use.controller.registry.service import Registry
 from browser_use.controller.views import ClickElementAction, DoneAction, ExtractPageContentAction
+from browser_use.dom.history_tree_processor.view import ViewportInfo
 from browser_use.dom.views import DOMElementNode
 
 
@@ -29,6 +30,7 @@ def sample_browser_state():
 			children=[],
 		),
 		selector_map={},
+		viewport_info=ViewportInfo(scroll_x=0, scroll_y=0, width=0, height=0),
 	)
 
 
