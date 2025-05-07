@@ -284,6 +284,10 @@ class Browser:
 			screen_size = get_screen_resolution()
 			offset_x, offset_y = get_window_adjustments()
 
+		extra = self.config.extra_browser_args[:]
+		if not any('--window-size=' in s for s in extra):
+			extra.append(f'--window-size={screen_size["width"]},{screen_size["height"]}')
+
 		chrome_args = {
 			f'--remote-debugging-port={self.config.chrome_remote_debugging_port}',
 			*CHROME_ARGS,
@@ -292,8 +296,7 @@ class Browser:
 			*(CHROME_DISABLE_SECURITY_ARGS if self.config.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.config.deterministic_rendering else []),
 			f'--window-position={offset_x},{offset_y}',
-			f'--window-size={screen_size["width"]},{screen_size["height"]}',
-			*self.config.extra_browser_args,
+			*extra,
 		}
 
 		# check if chrome remote debugging port is already taken,

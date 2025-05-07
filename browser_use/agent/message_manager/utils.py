@@ -153,6 +153,6 @@ def _write_response_to_file(f: Any, response: Any) -> None:
 	if isinstance(response, str):
 		f.write(response, indent=2)
 	elif isinstance(response, dict) or isinstance(response, list):
-		f.write(json.dumps(response, indent=2))
+		f.write(json.dumps(response, indent=2, ensure_ascii=False))
 	else:
-		f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2))
+		f.write(json.dumps(json.loads(response.model_dump_json(exclude_unset=True)), indent=2, ensure_ascii=False))

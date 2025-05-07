@@ -69,6 +69,8 @@ def create_history_gif(
 			'SimSun',  # 宋体
 			'Noto Sans CJK SC',  # 思源黑体
 			'WenQuanYi Micro Hei',  # 文泉驿微米黑
+			'PingFang SC',
+			'Hiragino Sans GB',
 			'Helvetica',
 			'Arial',
 			'DejaVuSans',
