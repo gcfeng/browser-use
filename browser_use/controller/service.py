@@ -152,6 +152,7 @@ class Controller(Generic[Context]):
 					msg += f' - {new_tab_msg}'
 					logger.info(new_tab_msg)
 					await browser.switch_to_tab(-1)
+					await asyncio.sleep(3)
 				return ActionResult(extracted_content=msg, include_in_memory=True)
 			except Exception as e:
 				logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
@@ -230,7 +231,6 @@ class Controller(Generic[Context]):
 			params: ExtractContentAction,
 			browser: BrowserContext,
 			page_extraction_llm: BaseChatModel,
-			page_extraction_llm_prompt: Optional[str],
 		):
 			page = await browser.get_current_page()
 			import markdownify
@@ -248,8 +248,6 @@ class Controller(Generic[Context]):
 					content += markdownify.markdownify(await iframe.content())
 
 			prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
-			if page_extraction_llm_prompt:
-				prompt = page_extraction_llm_prompt
 			template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
 			try:
 				trace_callback_handler = CozeLoopClient().get_langchain_callback()
@@ -271,13 +269,64 @@ class Controller(Generic[Context]):
 		)
 		async def scroll_down(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			if params.amount is not None:
-				await page.evaluate(f'window.scrollBy(0, {params.amount});')
-			else:
-				await page.evaluate('window.scrollBy(0, window.innerHeight);')
+			result = await page.evaluate(
+				"""
+			(amount) => {
+				var distance = amount || window.innerHeight;
+
+				var html = document.documentElement;
+				var isHtmlScrollable = html.scrollHeight > html.clientHeight;
+				
+				if (isHtmlScrollable) {
+					if (html.clientHeight + html.scrollTop >= html.scrollHeight) {
+						return { success: false, isEnd: true };
+					}
+					window.scrollBy(0, distance);
+					return { success: true, isEnd: false };
+				}
+
+				function isElementScrollable(el) {
+					var style = window.getComputedStyle(el);
+					return style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'overlay';
+				}	
+
+				var body = document.body;
+				var element = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+				while (element && element !== html) {
+					if (isElementScrollable(element)) {
+						break;
+					}
+					element = element.parentElement;
+				}
+
+				if (element === html) {
+					return { success: false, isEnd: false };
+				} else if (element === body) { // taobao
+					if (window.scrollY + element.clientHeight >= element.scrollHeight) {
+						return { success: false, isEnd: true };
+					}
+					window.scrollBy(0, distance);
+					return { success: true, isEnd: false };
+				} else {
+					if (element.clientHeight + element.scrollTop >= element.scrollHeight) {
+						return { success: false, isEnd: true };
+					}
+					element.scrollBy(0, distance);
+					return { success: true, isEnd: false };
+				}
+			};
+			""",
+				params.amount,
+			)
 
 			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍  Scrolled down the page by {amount}'
+			if result['success']:
+				msg = f'🔍  Scrolled down the page by {amount}'
+			elif result['isEnd']:
+				msg = '🔍  The page has reached the bottom and there is no need to scroll'
+			else:
+				msg = '🔍  Scrolling failed. It is likely that the page cannot be scrolled'
+
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg,
@@ -291,13 +340,64 @@ class Controller(Generic[Context]):
 		)
 		async def scroll_up(params: ScrollAction, browser: BrowserContext):
 			page = await browser.get_current_page()
-			if params.amount is not None:
-				await page.evaluate(f'window.scrollBy(0, -{params.amount});')
-			else:
-				await page.evaluate('window.scrollBy(0, -window.innerHeight);')
+			result = await page.evaluate(
+				"""
+			(amount) => {
+				var distance = -(amount || window.innerHeight);
+
+				var html = document.documentElement;
+				var isHtmlScrollable = html.scrollHeight > html.clientHeight;
+				
+				if (isHtmlScrollable) {
+					if (html.scrollTop <= 0) {
+						return { success: false, isEnd: true };
+					}
+					window.scrollBy(0, distance);
+					return { success: true, isEnd: false };
+				}
+
+				function isElementScrollable(el) {
+					var style = window.getComputedStyle(el);
+					return style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowY === 'overlay';
+				}	
+
+				var body = document.body;
+				var element = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+				while (element && element !== html) {
+					if (isElementScrollable(element)) {
+						break;
+					}
+					element = element.parentElement;
+				}
+
+				if (element === html) {
+					return { success: false, isEnd: false };
+				} else if (element === body) { // taobao
+					if (window.scrollY <= 0) {
+						return { success: false, isEnd: true };
+					}
+					window.scrollBy(0, distance);
+					return { success: true, isEnd: false };
+				} else {
+					if (element.scrollTop <= 0) {
+						return { success: false, isEnd: true };
+					}
+					element.scrollBy(0, distance);
+					return { success: true, isEnd: false };
+				}
+			};
+			""",
+				params.amount,
+			)
 
 			amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
-			msg = f'🔍  Scrolled up the page by {amount}'
+			if result['success']:
+				msg = f'🔍  Scrolled up the page by {amount}'
+			elif result['isEnd']:
+				msg = '🔍  The page has reached the top and there is no need to scroll'
+			else:
+				msg = '🔍  Scrolling failed. It is likely that the page cannot be scrolled'
+
 			logger.info(msg)
 			return ActionResult(
 				extracted_content=msg,
@@ -325,6 +425,9 @@ class Controller(Generic[Context]):
 							raise e
 				else:
 					raise e
+			# Most likely, it is a search behavior
+			if params.keys and params.keys.lower() == 'enter':
+				await asyncio.sleep(2)
 			msg = f'⌨️  Sent keys: {params.keys}'
 			logger.info(msg)
 			return ActionResult(extracted_content=msg, include_in_memory=True)
@@ -838,7 +941,6 @@ class Controller(Generic[Context]):
 		browser_context: BrowserContext,
 		#
 		page_extraction_llm: BaseChatModel | None = None,
-		page_extraction_llm_prompt: Optional[str] = None,
 		sensitive_data: dict[str, str] | None = None,
 		available_file_paths: list[str] | None = None,
 		#
@@ -862,7 +964,6 @@ class Controller(Generic[Context]):
 						params,
 						browser=browser_context,
 						page_extraction_llm=page_extraction_llm,
-						page_extraction_llm_prompt=page_extraction_llm_prompt,
 						sensitive_data=sensitive_data,
 						available_file_paths=available_file_paths,
 						context=context,

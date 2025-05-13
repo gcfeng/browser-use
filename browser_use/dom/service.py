@@ -116,10 +116,10 @@ class DomService:
 		selector_map = {}
 		node_map = {}
 		viewport_info = ViewportInfo(
-			width=js_viewport['width'],
-			height=js_viewport['height'],
-			scroll_x=js_viewport['scrollX'],
-			scroll_y=js_viewport['scrollY'],
+			width=round(js_viewport['width']),
+			height=round(js_viewport['height']),
+			scroll_x=round(js_viewport['scrollX']),
+			scroll_y=round(js_viewport['scrollY']),
 		)
 
 		for id, node_data in js_node_map.items():

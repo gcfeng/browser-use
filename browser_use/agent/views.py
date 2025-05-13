@@ -69,7 +69,6 @@ class AgentSettings(BaseModel):
 
 	tool_calling_method: ToolCallingMethod | None = 'auto'
 	page_extraction_llm: BaseChatModel | None = None
-	page_extraction_llm_prompt: Optional[str] = None
 	planner_llm: BaseChatModel | None = None
 	planner_interval: int = 1  # Run planner every N steps
 	is_planner_reasoning: bool = False  # type: ignore
@@ -77,8 +76,6 @@ class AgentSettings(BaseModel):
 
 	# Playwright script generation setting
 	save_playwright_script_path: str | None = None  # Path to save the generated Playwright script
-
-	uitars_executor_llm: Optional[BaseChatModel] = None
 
 
 class AgentState(BaseModel):
@@ -117,7 +114,7 @@ class ActionResult(BaseModel):
 	"""Result of executing an action"""
 
 	is_done: bool | None = False
-	is_step_done: Optional[bool] = False
+	is_step_done: bool | None = False
 	success: bool | None = None
 	extracted_content: str | None = None
 	error: str | None = None

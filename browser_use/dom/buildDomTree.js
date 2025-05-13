@@ -340,7 +340,7 @@
 
       // Adjust label position if first rect is too small
       if (firstRect.width < labelWidth + 4 || firstRect.height < labelHeight + 4) {
-        labelTop = firstRectTop - labelHeight - 2;
+        labelTop = firstRectTop - labelHeight + 4;
         labelLeft = firstRectLeft + firstRect.width - labelWidth; // Align with right edge
         if (labelLeft < iframeOffset.x) labelLeft = firstRectLeft; // Prevent going off-left
       }
@@ -528,19 +528,7 @@
         // Still check parent visibility for basic filtering
         const parentElement = textNode.parentElement;
         if (!parentElement) return false;
-
-        try {
-          return parentElement.checkVisibility({
-            checkOpacity: true,
-            checkVisibilityCSS: true,
-          });
-        } catch (e) {
-          // Fallback if checkVisibility is not supported
-          const style = window.getComputedStyle(parentElement);
-          return style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            style.opacity !== '0';
-        }
+        return isElementVisibleLoose(parentElement);
       }
       
       const range = document.createRange();
@@ -580,18 +568,7 @@
       const parentElement = textNode.parentElement;
       if (!parentElement) return false;
 
-      try {
-        return parentElement.checkVisibility({
-          checkOpacity: true,
-          checkVisibilityCSS: true,
-        });
-      } catch (e) {
-        // Fallback if checkVisibility is not supported
-        const style = window.getComputedStyle(parentElement);
-        return style.display !== 'none' &&
-          style.visibility !== 'hidden' &&
-          style.opacity !== '0';
-      }
+      return isElementVisibleLoose(parentElement);
     } catch (e) {
       console.warn('Error checking text node visibility:', e);
       return false;
@@ -632,8 +609,25 @@
       element.offsetWidth > 0 &&
       element.offsetHeight > 0 &&
       style.visibility !== "hidden" &&
-      style.display !== "none"
+      style.display !== "none" &&
+      style.opacity !== '0'
     );
+  }
+
+  function isElementVisibleLoose(element) {
+    try {
+      return element.checkVisibility({
+        contentVisibilityAuto: true,
+        opacityProperty: true,
+        visibilityProperty: true,
+      });
+    } catch (e) {
+      // Fallback if checkVisibility is not supported
+      const style = getCachedComputedStyle(element);
+      return style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0';
+    }
   }
 
   /**
@@ -858,31 +852,16 @@
     if (viewportExpansion === -1) {
       return true;
     }
-    
-    const rects = getCachedClientRects(element); // Replace element.getClientRects()
 
-    if (!rects || rects.length === 0) {
-      return false; // No geometry, cannot be top
+    const rect = getCachedBoundingRect(element);
+    if (rect.width <= 0 || rect.height <= 0 || (
+      rect.bottom < -viewportExpansion ||
+      rect.top > window.innerHeight + viewportExpansion ||
+      rect.right < -viewportExpansion ||
+      rect.left > window.innerWidth + viewportExpansion
+    )) {
+      return false;
     }
-
-    let isAnyRectInViewport = false;
-    for (const rect of rects) {
-      // Use the same logic as isInExpandedViewport check
-      if (rect.width > 0 && rect.height > 0 && !( // Only check non-empty rects
-        rect.bottom < -viewportExpansion ||
-        rect.top > window.innerHeight + viewportExpansion ||
-        rect.right < -viewportExpansion ||
-        rect.left > window.innerWidth + viewportExpansion
-      )) {
-        isAnyRectInViewport = true;
-        break;
-      }
-    }
-
-    if (!isAnyRectInViewport) {
-      return false; // All rects are outside the viewport area
-    }
-
 
     // Find the correct document context and root element
     let doc = element.ownerDocument;
@@ -892,21 +871,13 @@
       return true;
     }
 
-    // For shadow DOM, we need to check within its own root context
-    const shadowRoot = element.getRootNode();
-    if (shadowRoot instanceof ShadowRoot) {
-      const centerX = rects[Math.floor(rects.length / 2)].left + rects[Math.floor(rects.length / 2)].width / 2;
-      const centerY = rects[Math.floor(rects.length / 2)].top + rects[Math.floor(rects.length / 2)].height / 2;
-
+    function checkPoint(findRoot, stopRoot, point) {
       try {
-        const topEl = measureDomOperation(
-          () => shadowRoot.elementFromPoint(centerX, centerY),
-          'elementFromPoint'
-        );
+        const topEl = findRoot.elementFromPoint(point.x, point.y);
         if (!topEl) return false;
 
         let current = topEl;
-        while (current && current !== shadowRoot) {
+        while (current && current !== stopRoot) {
           if (current === element) return true;
           current = current.parentElement;
         }
@@ -916,23 +887,29 @@
       }
     }
 
-    // For elements in viewport, check if they're topmost
-    const centerX = rects[Math.floor(rects.length / 2)].left + rects[Math.floor(rects.length / 2)].width / 2;
-    const centerY = rects[Math.floor(rects.length / 2)].top + rects[Math.floor(rects.length / 2)].height / 2;
+    // For shadow DOM, we need to check within its own root context
+    const shadowRoot = element.getRootNode();
+    if (shadowRoot instanceof ShadowRoot) {
+      const topPoint = { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.3 };
+      const leftPoint = { x: rect.left + rect.width * 0.3, y: rect.top + rect.height / 2 };
+      const rightPoint = { x: rect.left + rect.width * 0.7, y: rect.top + rect.height / 2 };
+      const bottomPoint = { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.7 };
 
-    try {
-      const topEl = document.elementFromPoint(centerX, centerY);
-      if (!topEl) return false;
-
-      let current = topEl;
-      while (current && current !== document.documentElement) {
-        if (current === element) return true;
-        current = current.parentElement;
-      }
-      return false;
-    } catch (e) {
-      return true;
+      return checkPoint(shadowRoot, shadowRoot, topPoint) && 
+        checkPoint(shadowRoot, shadowRoot, leftPoint) &&
+        checkPoint(shadowRoot, shadowRoot, rightPoint) &&
+        checkPoint(shadowRoot, shadowRoot, bottomPoint);
     }
+
+    const topPoint = { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.3 };
+    const leftPoint = { x: rect.left + rect.width * 0.3, y: rect.top + rect.height / 2 };
+    const rightPoint = { x: rect.left + rect.width * 0.7, y: rect.top + rect.height / 2 };
+    const bottomPoint = { x: rect.left + rect.width / 2, y: rect.top + rect.height * 0.7 };
+
+    return checkPoint(document, document.documentElement, topPoint) && 
+        checkPoint(document, document.documentElement, leftPoint) &&
+        checkPoint(document, document.documentElement, rightPoint) &&
+        checkPoint(document, document.documentElement, bottomPoint);
   }
 
   /**
@@ -1103,48 +1080,43 @@
   /**
    * Handles the logic for deciding whether to highlight an element and performing the highlight.
    */
-  function handleHighlighting(nodeData, node, parentIframe, isParentHighlighted) {
+  function handleHighlighting(nodeData, node, parentIframe) {
     if (!nodeData.isInteractive) return false; // Not interactive, definitely don't highlight
 
-    let shouldHighlight = false;
-    if (!isParentHighlighted) {
-      // Parent wasn't highlighted, this interactive node can be highlighted.
-      shouldHighlight = true;
-    } else {
-      // Parent *was* highlighted. Only highlight this node if it represents a distinct interaction.
-      if (isElementDistinctInteraction(node)) {
-        shouldHighlight = true;
-      } else {
-        // console.log(`Skipping highlight for ${nodeData.tagName} (parent highlighted)`);
-        shouldHighlight = false;
-      }
-    }
+    // Check viewport status before assigning index and highlighting
+    nodeData.isInViewport = isInExpandedViewport(node, viewportExpansion);
+    if (nodeData.isInViewport) {
+      nodeData.highlightIndex = highlightIndex++;
 
-    if (shouldHighlight) {
-      // Check viewport status before assigning index and highlighting
-      nodeData.isInViewport = isInExpandedViewport(node, viewportExpansion);
-      
-      // When viewportExpansion is -1, all interactive elements should get a highlight index
-      // regardless of viewport status
-      if (nodeData.isInViewport || viewportExpansion === -1) {
-        nodeData.highlightIndex = highlightIndex++;
-
-        if (doHighlightElements) {
-          if (focusHighlightIndex >= 0) {
-            if (focusHighlightIndex === nodeData.highlightIndex) {
-              highlightElement(node, nodeData.highlightIndex, parentIframe);
-            }
-          } else {
+      if (doHighlightElements) {
+        if (focusHighlightIndex >= 0) {
+          if (focusHighlightIndex === nodeData.highlightIndex) {
             highlightElement(node, nodeData.highlightIndex, parentIframe);
           }
-          return true; // Successfully highlighted
+        } else {
+          highlightElement(node, nodeData.highlightIndex, parentIframe);
         }
-      } else {
-        // console.log(`Skipping highlight for ${nodeData.tagName} (outside viewport)`);
+        return true; // Successfully highlighted
       }
     }
 
     return false; // Did not highlight
+  }
+
+  function hasMoreChildrenHighlighted(nodeData) {
+    if (!nodeData.children || !nodeData.children.length) return false;
+    const children = nodeData.children.slice(); // prevent change
+    let count = 0;
+    do {
+      const childId = children.shift();
+      const childNode = DOM_HASH_MAP[childId];
+      if (childNode.highlightIndex != null) {
+        count++;
+      }
+      if (count >= 1) return true;
+      children.push(...(childNode.children || []));
+    } while (children.length);
+    return false;
   }
 
   /**
@@ -1153,17 +1125,20 @@
   function buildDomTree(node, parentIframe = null, isParentHighlighted = false) {
     // Fast rejection checks first
     if (!node || node.id === HIGHLIGHT_CONTAINER_ID || 
-        (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE)) {
+        (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) || 
+        (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === 'a' && !node.getAttribute('href') &&
+          !Array.from(node.childNodes).find(
+            (c) => c.nodeType === Node.TEXT_NODE || c.nodeType === Node.ELEMENT_NODE
+          )
+        ) ||
+        (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) ||
+        (node.nodeType === Node.ELEMENT_NODE && !isElementVisibleLoose(node))
+      ) {
       if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
       return null;
     }
 
     if (debugMode) PERF_METRICS.nodeMetrics.totalNodes++;
-
-    if (!node || node.id === HIGHLIGHT_CONTAINER_ID) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
-    }
 
     // Special handling for root node (body)
     if (node === document.body) {
@@ -1185,12 +1160,6 @@
       DOM_HASH_MAP[id] = nodeData;
       if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
       return id;
-    }
-
-    // Early bailout for non-element nodes except text
-    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
     }
 
     // Process text nodes
@@ -1216,12 +1185,6 @@
       };
       if (debugMode) PERF_METRICS.nodeMetrics.processedNodes++;
       return id;
-    }
-
-    // Quick checks for element nodes
-    if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
     }
 
     // Early viewport check - only filter out elements clearly outside viewport
@@ -1274,8 +1237,11 @@
         nodeData.isTopElement = isTopElement(node);
         if (nodeData.isTopElement) {
           nodeData.isInteractive = isInteractiveElement(node);
-          // Call the dedicated highlighting function
-          nodeWasHighlighted = handleHighlighting(nodeData, node, parentIframe, isParentHighlighted);
+          // Highlight the element with interactive behaviors that are prominent.
+          // Otherwise, take the final fallback action after processing its child nodes.
+          if (isElementDistinctInteraction(node)) {
+            nodeWasHighlighted = handleHighlighting(nodeData, node, parentIframe);
+          }
         }
       }
     }
@@ -1331,10 +1297,16 @@
       }
     }
 
-    // Skip empty anchor tags
-    if (nodeData.tagName === 'a' && nodeData.children.length === 0 && !nodeData.attributes.href) {
-      if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;
-      return null;
+    const hasMoreArea =
+      (nodeData.rect.width || 0) >= 34 || (nodeData.rect.height || 0) >= 34;
+    const hasMoreChildren = nodeData.children && nodeData.children.length >= 2;
+    if (
+      !isParentHighlighted &&
+      !nodeWasHighlighted &&
+      !hasMoreChildrenHighlighted(nodeData) &&
+      (hasMoreArea || hasMoreChildren)
+    ) {
+      handleHighlighting(nodeData, node, parentIframe);
     }
 
     const id = `${ID.current++}`;

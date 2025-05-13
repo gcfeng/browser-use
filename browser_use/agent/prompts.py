@@ -1,6 +1,6 @@
 import importlib.resources
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -21,7 +21,7 @@ class SystemPrompt:
 		self.max_actions_per_step = max_actions_per_step
 		prompt = ''
 		if override_system_message:
-			prompt = override_system_message
+			prompt = override_system_message.format(max_actions=self.max_actions_per_step)
 		else:
 			self._load_prompt_template()
 			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)

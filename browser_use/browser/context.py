@@ -1203,6 +1203,7 @@ class BrowserContext:
 			# 	)
 
 			screenshot_b64 = await self.take_screenshot()
+			screenshot_full_b64 = await self.take_screenshot(full_page=True)
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
 			# Find the agent's active tab ID
@@ -1221,6 +1222,7 @@ class BrowserContext:
 				title=await page.title(),
 				tabs=tabs_info,
 				screenshot=screenshot_b64,
+				screenshot_full=screenshot_full_b64,
 				pixels_above=pixels_above,
 				pixels_below=pixels_below,
 			)
@@ -1682,16 +1684,11 @@ class BrowserContext:
 					await self._check_and_handle_navigation(page)
 
 			try:
-				return await perform_click(lambda: element_handle.click(timeout=1500))
+				return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
 			except URLNotAllowedError as e:
 				raise e
-			except Exception:
-				try:
-					return await perform_click(lambda: page.evaluate('(el) => el.click()', element_handle))
-				except URLNotAllowedError as e:
-					raise e
-				except Exception as e:
-					raise Exception(f'Failed to click element: {str(e)}')
+			except Exception as e:
+				raise Exception(f'Failed to click element: {str(e)}')
 
 		except URLNotAllowedError as e:
 			raise e

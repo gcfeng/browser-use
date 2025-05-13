@@ -23,7 +23,7 @@ class InputTextAction(BaseModel):
 
 class DoneAction(BaseModel):
 	text: str
-	success: bool
+	success: bool | None = None
 
 
 class SwitchTabAction(BaseModel):
@@ -40,7 +40,7 @@ class CloseTabAction(BaseModel):
 
 class ExtractContentAction(BaseModel):
 	goal: str
-	should_strip_link_urls: Optional[bool] = None
+	should_strip_link_urls: bool | None = None
 
 
 class ScrollAction(BaseModel):

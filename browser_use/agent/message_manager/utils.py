@@ -21,6 +21,7 @@ MODELS_WITHOUT_TOOL_SUPPORT_PATTERNS = [
 	'deepseek-reasoner',
 	'deepseek-r1',
 	'.*gemma.*-it',
+	'doubao-1.5-vision-pro-250328',
 ]
 
 
