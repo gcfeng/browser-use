@@ -1060,15 +1060,20 @@ class Agent(Generic[Context]):
 
 				try:
 					if self.register_step_action_callback:
-						state = await self.browser_context.get_state(cache_clickable_elements_hashes=True)
-						extra: dict[str, Any] = {
-							'step_index': self.state.n_steps,
-							'action_index': i,
-							'node_index': action.get_index(),
-						}
+						extra: dict[str, Any] = {}
 						for action_name, action_args in action.model_dump(exclude_unset=True).items():
 							extra['action_name'] = action_name
 							extra['action_args'] = action_args
+						state = await self.browser_context.get_state(
+							cache_clickable_elements_hashes=True, full_screenshot=extra['action_name'].startswith('extract')
+						)
+						extra.update(
+							{
+								'step_index': self.state.n_steps,
+								'action_index': i,
+								'node_index': action.get_index(),
+							}
+						)
 						if extra['node_index']:
 							node = state.selector_map.get(extra['node_index'])
 							if node:

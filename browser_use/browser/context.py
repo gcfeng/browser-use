@@ -12,9 +12,11 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
+from io import BytesIO
 from typing import TYPE_CHECKING
 
 import anyio
+from patchright._impl._api_structures import FloatRect
 from patchright._impl._errors import TimeoutError
 from patchright.async_api import Browser as PlaywrightBrowser
 from patchright.async_api import (
@@ -25,6 +27,7 @@ from patchright.async_api import (
 	FrameLocator,
 	Page,
 )
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 
 from browser_use.browser.views import (
@@ -1118,7 +1121,7 @@ class BrowserContext:
 		return structure
 
 	@time_execution_sync('--get_state')  # This decorator might need to be updated to handle async
-	async def get_state(self, cache_clickable_elements_hashes: bool) -> BrowserState:
+	async def get_state(self, cache_clickable_elements_hashes: bool, full_screenshot: bool = False) -> BrowserState:
 		"""Get the current state of the browser
 
 		cache_clickable_elements_hashes: bool
@@ -1126,7 +1129,7 @@ class BrowserContext:
 		"""
 		await self._wait_for_page_and_frames_load()
 		session = await self.get_session()
-		updated_state = await self._get_updated_state()
+		updated_state = await self._get_updated_state(full_screenshot=full_screenshot)
 
 		# Find out which elements are new
 		# Do this only if url has not changed
@@ -1158,7 +1161,7 @@ class BrowserContext:
 
 		return session.cached_state
 
-	async def _get_updated_state(self, focus_element: int = -1) -> BrowserState:
+	async def _get_updated_state(self, focus_element: int = -1, full_screenshot: bool = False) -> BrowserState:
 		"""Update and return state."""
 		session = await self.get_session()
 
@@ -1173,6 +1176,13 @@ class BrowserContext:
 
 		try:
 			await self.remove_highlights()
+
+			# Don't keep the highlighted frame in the screenshot
+			screenshot_b64 = await self.take_screenshot()
+			screenshot_full_b64 = None
+			if full_screenshot:
+				screenshot_full_b64 = await self.take_screenshot(True)
+
 			dom_service = DomService(page)
 			content = await dom_service.get_clickable_elements(
 				focus_element=focus_element,
@@ -1201,9 +1211,6 @@ class BrowserContext:
 			# 			parent_page_id=self.state.target_id,
 			# 		)
 			# 	)
-
-			screenshot_b64 = await self.take_screenshot()
-			screenshot_full_b64 = await self.take_screenshot(full_page=True)
 			pixels_above, pixels_below = await self.get_scroll_info(page)
 
 			# Find the agent's active tab ID
@@ -1247,17 +1254,91 @@ class BrowserContext:
 		# await page.bring_to_front()
 		await page.wait_for_load_state()
 
-		screenshot = await page.screenshot(
-			full_page=full_page,
-			animations='disabled',
-			type='jpeg',
-		)
+		if full_page:
+			screenshot = await page.screenshot(full_page=full_page, animations='disabled', type='jpeg')
+			if not screenshot:
+				# Failed, scroll and screenshot
+				js_rect = await page.evaluate(
+					"""
+					() => {
+						var style = document.createElement('style');
+						style.id = 'browser-use-scrollbar';
+						style.innerHTML = '::-webkit-scrollbar { display: none; }';
+						document.head.appendChild(style);
+
+						var html = document.documentElement;
+						return {
+							viewport_w: window.innerWidth,
+							viewport_h: window.innerHeight,
+							scroll_h: html.scrollHeight,
+							current_scroll_y: window.scrollY,
+						};														 
+					}
+					""",
+				)
+				screenshots = []
+				max_scrollable = min(65500, js_rect['scroll_h']) - js_rect['viewport_h']
+				for offset in range(0, max_scrollable, js_rect['viewport_h']):
+					await page.evaluate(f'window.scrollTo(0, {offset})')
+					screenshot = await page.screenshot(type='jpeg', quality=100)
+					screenshots.append(Image.open(BytesIO(screenshot)))
+					if offset + js_rect['viewport_h'] > max_scrollable:
+						last = max_scrollable - offset
+						await page.evaluate(f'window.scrollTo(0, {max_scrollable})')
+						clip = FloatRect(x=0, y=js_rect['viewport_h'] - last, width=js_rect['viewport_w'], height=last)
+						screenshot = await page.screenshot(type='jpeg', quality=100, clip=clip)
+						screenshots.append(Image.open(BytesIO(screenshot)))
+						break
+				# Reset scroll state
+				await page.evaluate(
+					"""
+						(prevScrollY) => {
+							let style = document.getElementById('browser-use-scrollbar');
+							if (style) {
+								style.remove();
+							}
+							window.scrollTo(0, prevScrollY);
+						}
+					""",
+					js_rect['current_scroll_y'],
+				)
+
+				# Combine screenshots
+				resized_screenshots = [
+					self.resize_image(img, js_rect['viewport_w'], js_rect['viewport_h']) for img in screenshots
+				]
+				total_height = sum(img.height for img in resized_screenshots)
+				full_screenshot = Image.new('RGB', (resized_screenshots[0].width, total_height))
+				y_offset = 0
+				for img in resized_screenshots:
+					full_screenshot.paste(img, (0, y_offset))
+					y_offset += img.height
+
+				buffer = BytesIO()
+				full_screenshot.save(buffer, format='JPEG')
+				screenshot = buffer.getvalue()
+		else:
+			screenshot = await page.screenshot(full_page=full_page, animations='disabled', type='jpeg')
 
 		screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 
 		# await self.remove_highlights()
 
 		return screenshot_b64
+
+	def resize_image(self, image, max_width, max_height):
+		original_width, original_height = image.size
+		aspect_ratio = original_width / original_height
+
+		if original_width > max_width or original_height > max_height:
+			if original_width / max_width > original_height / max_height:
+				new_width = max_width
+				new_height = int(max_width / aspect_ratio)
+			else:
+				new_height = max_height
+				new_width = int(max_height * aspect_ratio)
+			return image.resize((new_width, new_height), Image.LANCZOS)
+		return image
 
 	@time_execution_async('--remove_highlights')
 	async def remove_highlights(self):
