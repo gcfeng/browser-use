@@ -64,6 +64,7 @@ class AgentSettings(BaseModel):
 		'value',
 		'alt',
 		'aria-expanded',
+		'options',
 	]
 	max_actions_per_step: int = 10
 

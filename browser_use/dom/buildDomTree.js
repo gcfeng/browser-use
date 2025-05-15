@@ -1227,6 +1227,10 @@
       for (const name of attributeNames) {
         nodeData.attributes[name] = node.getAttribute(name);
       }
+
+      if (nodeData.tagName === 'select') {
+        nodeData.attributes['options'] = Array.from(node.options).map(option => option.text);
+      }
     }
 
     let nodeWasHighlighted = false;

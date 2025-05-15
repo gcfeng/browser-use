@@ -156,6 +156,7 @@ class Agent(Generic[Context]):
 			'alt',
 			'aria-expanded',
 			'data-date-format',
+			'options',
 		],
 		max_actions_per_step: int = 10,
 		tool_calling_method: ToolCallingMethod | None = 'auto',
