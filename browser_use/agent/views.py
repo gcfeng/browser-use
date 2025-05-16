@@ -120,6 +120,7 @@ class ActionResult(BaseModel):
 	extracted_content: str | None = None
 	error: str | None = None
 	include_in_memory: bool = False  # whether to include in past messages as context or not
+	raw_content: str | None = None
 
 
 class StepMetadata(BaseModel):

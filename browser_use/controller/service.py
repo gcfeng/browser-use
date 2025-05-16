@@ -256,12 +256,12 @@ class Controller(Generic[Context]):
 				)
 				msg = f'📄  Extracted from page\n: {output.content}\n'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg, include_in_memory=True)
+				return ActionResult(extracted_content=msg, include_in_memory=True, raw_content=content)
 			except Exception as e:
 				logger.debug(f'Error extracting content: {e}')
 				msg = f'📄  Extracted from page\n: {content}\n'
 				logger.info(msg)
-				return ActionResult(extracted_content=msg)
+				return ActionResult(extracted_content=msg, raw_content=content)
 
 		@self.registry.action(
 			'Scroll down the page by pixel amount - if no amount is specified, scroll down one page',

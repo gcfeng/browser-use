@@ -1099,8 +1099,10 @@ class Agent(Generic[Context]):
 
 				# Cache extract_content action result
 				for action_name, _ in action.model_dump(exclude_unset=True).items():
-					if action_name == 'extract_content':
-						self.extract_actions.append(AgentExtractAction(content=result.extracted_content or ''))
+					if action_name and action_name.startswith('extract'):
+						self.extract_actions.append(
+							AgentExtractAction(content=result.raw_content or result.extracted_content or '')
+						)
 
 				logger.debug(f'Executed action {i + 1} / {len(actions)}')
 				if results[-1].is_done or results[-1].error or i == len(actions) - 1:
